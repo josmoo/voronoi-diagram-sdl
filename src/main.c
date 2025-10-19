@@ -7,7 +7,11 @@
 #include <time.h>
 #include <SDL2/SDL.h>
 
-#define WIDTH_AND_HEIGHT 600
+#define WINDOW_WIDTH 1024
+#define WINDOW_HEIGHT 680
+#define VORONOI_LENGTH 600
+#define WINDOW_BACKGROUND_COLOR 15, 15, 15, 255
+#define BUTTON_COLOR 246,246,246,255
 
 #define SEEDS_COUNT 256
 #define UNDEFINED_COLOR 0x00BABABA
@@ -15,6 +19,13 @@
 #define EMPTY_ORIGIN (Point){-1,-1}
 
 #define OUTPUT_FILE_PATH "output.ppm"
+
+//todo: ui button to refresh
+//          |REFRESH VORONOI| 
+//      checkbox to enable / disable origin points (optional stretch goal, let user choose color)
+//          [✓] DISPLAY ORIGIN POINTS
+
+//text needed: _ADEFGHILNOPRSTVY [ ] [✓]
 
 typedef struct {
     int x, y;
@@ -25,8 +36,10 @@ typedef struct {
     Point origin;
 } Pixel;
 
-static Pixel image[WIDTH_AND_HEIGHT][WIDTH_AND_HEIGHT];
+static Pixel image[VORONOI_LENGTH][VORONOI_LENGTH];
 static Point seeds[SEEDS_COUNT];
+static SDL_Rect button = {};
+static SDL_Rect checkbox = {};
 
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
@@ -40,8 +53,8 @@ void initialize_window(void){
         "voronoi",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        WIDTH_AND_HEIGHT,
-        WIDTH_AND_HEIGHT,
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT,
         0
     );
 
@@ -60,6 +73,13 @@ void initialize_window(void){
     }
 }
 
+int inside_rect(int x, int y, SDL_Rect * rect){
+    if(x >= rect->x && x <= rect->x + rect->w && y >= rect->y && y <= rect->y + rect->h){
+        return 1;
+    }
+    return 0;
+}
+
 void dissect_color(uint8_t* bytes, uint32_t color){
     bytes[0] = (color & 0x000000FF);     //R
     bytes[1] = (color & 0x0000FF00)>>8;  //G
@@ -67,17 +87,30 @@ void dissect_color(uint8_t* bytes, uint32_t color){
 }
 
 void render_window(void){
-    SDL_SetRenderDrawColor(renderer, 0,0,0,0);
+    SDL_SetRenderDrawColor(renderer, WINDOW_BACKGROUND_COLOR);
     SDL_RenderClear(renderer);
 
-    for(int y = 0; y < WIDTH_AND_HEIGHT; ++y){
-        for (int x = 0; x < WIDTH_AND_HEIGHT; ++x){
+    unsigned int y_offset = (WINDOW_HEIGHT - VORONOI_LENGTH) / 2;
+    unsigned int x_offset = (WINDOW_WIDTH - VORONOI_LENGTH) / 16;
+
+    //draw UI
+    button.w = x_offset * 8;
+    button.h = 32;
+    button.x = VORONOI_LENGTH + x_offset + x_offset;
+    button.y = VORONOI_LENGTH + y_offset - button.h; 
+    SDL_SetRenderDrawColor(renderer, BUTTON_COLOR);
+    SDL_RenderFillRect(renderer, &button);
+
+    //draw voronoi
+    for(int y = 0; y < VORONOI_LENGTH; ++y){
+        for (int x = 0; x < VORONOI_LENGTH; ++x){
             uint8_t bytes[3];
             dissect_color(bytes, image[y][x].color);
             SDL_SetRenderDrawColor(renderer, (bytes[0]), (int)bytes[1], (int)bytes[2], 255);
-            SDL_RenderDrawPoint(renderer, y, x);
+            SDL_RenderDrawPoint(renderer, x + x_offset, y + y_offset);
         }
     }
+    
     SDL_RenderPresent(renderer);
 }
 
@@ -90,8 +123,8 @@ void cleanup_window(void){
 void generate_random_seeds(void){
     srand((unsigned int)time(NULL));
     for (size_t i = 0; i < SEEDS_COUNT; ++i){
-        seeds[i].x = rand() % WIDTH_AND_HEIGHT;
-        seeds[i].y = rand() % WIDTH_AND_HEIGHT;
+        seeds[i].x = rand() % VORONOI_LENGTH;
+        seeds[i].y = rand() % VORONOI_LENGTH;
     }
 }
 int sqr_dist(int x1, int y1, int x2, int y2){
@@ -117,15 +150,15 @@ void render_seed_markers(uint32_t * color){
 
 //https://en.wikipedia.org/wiki/Jump_flooding_algorithm#Implementation
 void fill_voronoi(void){
-    for(int k = WIDTH_AND_HEIGHT/2; k > 0; k/=2){
-        for (int y = 0; y < WIDTH_AND_HEIGHT; ++y){
-            for (int x = 0; x < WIDTH_AND_HEIGHT; ++x){
+    for(int k = VORONOI_LENGTH/2; k > 0; k/=2){
+        for (int y = 0; y < VORONOI_LENGTH; ++y){
+            for (int x = 0; x < VORONOI_LENGTH; ++x){
                 for(int i = y - k; i <= k + y; i += k){
-                    if(i < 0 || i >= WIDTH_AND_HEIGHT){
+                    if(i < 0 || i >= VORONOI_LENGTH){
                         continue;
                     }
                     for(int j = x - k; j <= k + x; j += k){
-                        if(j < 0 || j >= WIDTH_AND_HEIGHT){
+                        if(j < 0 || j >= VORONOI_LENGTH){
                             continue;
                         }
                         if(i == y && j == x){
@@ -157,36 +190,26 @@ void fill_voronoi(void){
 }
 
 void fill_image(uint32_t color){
-    for(size_t y = 0; y < WIDTH_AND_HEIGHT; ++y){
-        for(size_t x = 0; x < WIDTH_AND_HEIGHT; ++x){
+    for(size_t y = 0; y < VORONOI_LENGTH; ++y){
+        for(size_t x = 0; x < VORONOI_LENGTH; ++x){
             image[y][x] = (Pixel){color, EMPTY_ORIGIN};
         }
     }
 }
 
-void refresh_voronoi(void){
+void refresh_voronoi(uint32_t * marker_color){
     generate_random_seeds();
     fill_image(UNDEFINED_COLOR);
     render_seed_markers(NULL);
     fill_voronoi();
-    uint32_t point = 0x00000000;
-    render_seed_markers(&point);
-}
-
-void handle_key_press(SDL_Keycode sym){
-    switch(sym){
-    case SDLK_r:
-        refresh_voronoi();
-        render_window();
-        break;
-    default:
-        break;
+    if(marker_color){
+        render_seed_markers(marker_color);
     }
 }
 
 int main(void){
     initialize_window();
-    refresh_voronoi();
+    refresh_voronoi(NULL);
     render_window();
 
     SDL_Event event;
@@ -199,7 +222,17 @@ int main(void){
                 break;
 
             case SDL_KEYDOWN:
-                handle_key_press(event.key.keysym.sym);
+                if(event.key.keysym.sym == SDLK_r){
+                    refresh_voronoi(NULL);
+                    render_window();
+                }
+                break;
+
+            case SDL_MOUSEBUTTONDOWN:
+                if(inside_rect(event.button.x, event.button.y, &button)){
+                    refresh_voronoi(NULL);
+                    render_window();
+                }
                 break;
 
             default:
