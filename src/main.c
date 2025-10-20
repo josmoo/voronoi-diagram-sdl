@@ -18,14 +18,8 @@
 
 #define EMPTY_ORIGIN (Point){-1,-1}
 
-#define OUTPUT_FILE_PATH "output.ppm"
-
-//todo: ui button to refresh
-//          |REFRESH VORONOI| 
-//      checkbox to enable / disable origin points (optional stretch goal, let user choose color)
-//          [✓] DISPLAY ORIGIN POINTS
-
-//text needed: _ADEFGHILNOPRSTVY [ ] [✓]
+#define REFRESH_FILE_PATH "./REFRESH.bmp"
+#define ORIGIN_POINTS_FILE_PATH "./ORIGIN_POINTS.bmp"
 
 typedef struct {
     int x, y;
@@ -38,9 +32,11 @@ typedef struct {
 
 static Pixel image[VORONOI_LENGTH][VORONOI_LENGTH];
 static Point seeds[SEEDS_COUNT];
-static SDL_Rect button = {};
-static SDL_Rect checkbox = {};
+static int draw_origin_points = 0;
 
+SDL_Rect button = {};
+SDL_Rect checkbox = {};
+SDL_Rect origin_toggle_rect = {};
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
 
@@ -86,21 +82,40 @@ void dissect_color(uint8_t* bytes, uint32_t color){
     bytes[2] = (color & 0x00FF0000)>>16; //B
 }
 
-void render_window(void){
+void render_window(SDL_Texture* refresh_text, SDL_Texture* origin_points_text){
     SDL_SetRenderDrawColor(renderer, WINDOW_BACKGROUND_COLOR);
     SDL_RenderClear(renderer);
 
-    unsigned int y_offset = (WINDOW_HEIGHT - VORONOI_LENGTH) / 2;
-    unsigned int x_offset = (WINDOW_WIDTH - VORONOI_LENGTH) / 16;
+    unsigned int y_offset = (WINDOW_HEIGHT - VORONOI_LENGTH) >> 1;
+    unsigned int x_offset = (WINDOW_WIDTH - VORONOI_LENGTH) >> 4;
 
-    //draw UI
-    button.w = x_offset * 8;
+    button.w = x_offset * 9;
     button.h = 32;
     button.x = VORONOI_LENGTH + x_offset + x_offset;
     button.y = VORONOI_LENGTH + y_offset - button.h; 
     SDL_SetRenderDrawColor(renderer, BUTTON_COLOR);
-    SDL_RenderFillRect(renderer, &button);
 
+    SDL_Rect refresh_rect = {button.x + ((button.w - 115)>>1), button.y + 5, 115, 21};
+    SDL_RenderFillRect(renderer, &button);
+    SDL_RenderCopy(renderer, refresh_text, NULL, &refresh_rect);
+
+    checkbox.w = 13;
+    checkbox.h = 18;
+    checkbox.x = button.x;
+    checkbox.y = button.y - y_offset + 2;
+    SDL_RenderDrawRect(renderer, &checkbox);
+
+    if(draw_origin_points){
+        SDL_Rect checkbox_fill = {checkbox.x + 2, checkbox.y + 2, checkbox.w - 4, checkbox.h - 4};
+        SDL_RenderFillRect(renderer, &checkbox_fill);
+    }
+
+    origin_toggle_rect.w = 207;
+    origin_toggle_rect.h = 21;
+    origin_toggle_rect.x = button.x + 21;
+    origin_toggle_rect.y = button.y - y_offset;
+    SDL_RenderCopy(renderer, origin_points_text, NULL, &origin_toggle_rect);
+    
     //draw voronoi
     for(int y = 0; y < VORONOI_LENGTH; ++y){
         for (int x = 0; x < VORONOI_LENGTH; ++x){
@@ -197,20 +212,37 @@ void fill_image(uint32_t color){
     }
 }
 
-void refresh_voronoi(uint32_t * marker_color){
+void refresh_voronoi(SDL_Texture* refresh_text, SDL_Texture* origin_points_text){
     generate_random_seeds();
     fill_image(UNDEFINED_COLOR);
     render_seed_markers(NULL);
     fill_voronoi();
-    if(marker_color){
-        render_seed_markers(marker_color);
+    if(draw_origin_points){
+        uint32_t black = 0xFF000000;
+        render_seed_markers(&black);
     }
+    render_window(refresh_text, origin_points_text);
+}
+
+void load_bmp(SDL_Texture** texture, const char* bmp_path){
+    SDL_Surface* surface = SDL_LoadBMP(bmp_path);
+    if(!surface){
+        fprintf(stderr, "couldn't load surface %s\n", bmp_path);        
+    } 
+    *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if(!*texture){
+        fprintf(stderr, "couldn't load texture %s\n", bmp_path);  
+    }
+    SDL_FreeSurface(surface);
 }
 
 int main(void){
-    initialize_window();
-    refresh_voronoi(NULL);
-    render_window();
+    initialize_window(); 
+    SDL_Texture* refresh_text = NULL;
+    SDL_Texture* origin_points_text = NULL;
+    load_bmp(&refresh_text, REFRESH_FILE_PATH);
+    load_bmp(&origin_points_text, ORIGIN_POINTS_FILE_PATH);
+    refresh_voronoi(refresh_text, origin_points_text);
 
     SDL_Event event;
     int loop = 1;
@@ -223,15 +255,22 @@ int main(void){
 
             case SDL_KEYDOWN:
                 if(event.key.keysym.sym == SDLK_r){
-                    refresh_voronoi(NULL);
-                    render_window();
+                    refresh_voronoi(refresh_text, origin_points_text);
                 }
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
                 if(inside_rect(event.button.x, event.button.y, &button)){
-                    refresh_voronoi(NULL);
-                    render_window();
+                    refresh_voronoi(refresh_text, origin_points_text);
+                }
+                else if(inside_rect(event.button.x, event.button.y, &checkbox) 
+                        || inside_rect(event.button.x, event.button.y, &origin_toggle_rect)){
+                    draw_origin_points = (draw_origin_points + 1) % 2;
+                    if(draw_origin_points){
+                        uint32_t black = 0xFF000000;
+                        render_seed_markers(&black);
+                    }
+                    render_window(refresh_text, origin_points_text);
                 }
                 break;
 
@@ -240,6 +279,8 @@ int main(void){
             }
         }
     }
+    SDL_DestroyTexture(refresh_text);
+    SDL_DestroyTexture(origin_points_text);
     cleanup_window();
     return 0;
 }
