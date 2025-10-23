@@ -12,14 +12,22 @@
 #define VORONOI_LENGTH 600
 #define WINDOW_BACKGROUND_COLOR 15, 15, 15, 255
 #define BUTTON_COLOR 246,246,246,255
-
 #define SEEDS_COUNT 256
+
+
 #define UNDEFINED_COLOR 0x00BABABA
 
 #define EMPTY_ORIGIN (Point){-1,-1}
 
-#define REFRESH_FILE_PATH "./REFRESH.bmp"
-#define ORIGIN_POINTS_FILE_PATH "./ORIGIN_POINTS.bmp"
+#define REFRESH_BMP_PATH "./REFRESH.bmp"
+#define ORIGIN_POINTS_BMP_PATH "./ORIGIN_POINTS.bmp"
+#define SEEDS_BMP_PATH "./SEEDS.bmp"
+#define NUMBERS_BMP_PATH "./NUMBERS.bmp"
+
+SDL_Texture* refresh_text = NULL;
+SDL_Texture* origin_points_text = NULL;
+SDL_Texture* seeds_text = NULL;
+SDL_Texture* numbers_text = NULL;
 
 typedef struct {
     int x, y;
@@ -37,6 +45,7 @@ static int draw_origin_points = 0;
 SDL_Rect button = {};
 SDL_Rect checkbox = {};
 SDL_Rect origin_toggle_rect = {};
+SDL_Rect seeds_count_input = {};
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
 
@@ -82,27 +91,27 @@ void dissect_color(uint8_t* bytes, uint32_t color){
     bytes[2] = (color & 0x00FF0000)>>16; //B
 }
 
-void render_window(SDL_Texture* refresh_text, SDL_Texture* origin_points_text){
+void render_window(){
     SDL_SetRenderDrawColor(renderer, WINDOW_BACKGROUND_COLOR);
     SDL_RenderClear(renderer);
 
     unsigned int y_offset = (WINDOW_HEIGHT - VORONOI_LENGTH) >> 1;
     unsigned int x_offset = (WINDOW_WIDTH - VORONOI_LENGTH) >> 4;
 
-    button.w = x_offset * 9;
     button.h = 32;
     button.x = VORONOI_LENGTH + x_offset + x_offset;
     button.y = VORONOI_LENGTH + y_offset - button.h; 
+    button.w = x_offset * 9;
     SDL_SetRenderDrawColor(renderer, BUTTON_COLOR);
 
     SDL_Rect refresh_rect = {button.x + ((button.w - 115)>>1), button.y + 5, 115, 21};
     SDL_RenderFillRect(renderer, &button);
     SDL_RenderCopy(renderer, refresh_text, NULL, &refresh_rect);
 
-    checkbox.w = 13;
-    checkbox.h = 18;
     checkbox.x = button.x;
     checkbox.y = button.y - y_offset + 2;
+    checkbox.w = 13;
+    checkbox.h = 18;
     SDL_RenderDrawRect(renderer, &checkbox);
 
     if(draw_origin_points){
@@ -110,11 +119,20 @@ void render_window(SDL_Texture* refresh_text, SDL_Texture* origin_points_text){
         SDL_RenderFillRect(renderer, &checkbox_fill);
     }
 
-    origin_toggle_rect.w = 207;
-    origin_toggle_rect.h = 21;
     origin_toggle_rect.x = button.x + 21;
     origin_toggle_rect.y = button.y - y_offset;
+    origin_toggle_rect.w = 207;
+    origin_toggle_rect.h = 21;
     SDL_RenderCopy(renderer, origin_points_text, NULL, &origin_toggle_rect);
+
+    SDL_Rect seeds_count_label = {button.x, origin_toggle_rect.y - y_offset, 90, 21};
+    SDL_RenderCopy(renderer, seeds_text, NULL, &seeds_count_label);
+
+    seeds_count_input.x = seeds_count_label.x + seeds_count_label.w;
+    seeds_count_input.y = seeds_count_label.y + 2;
+    seeds_count_input.w = button.w - (seeds_count_label.w);
+    seeds_count_input.h = 18;
+    SDL_RenderFillRect(renderer, &seeds_count_input);
     
     //draw voronoi
     for(int y = 0; y < VORONOI_LENGTH; ++y){
@@ -212,7 +230,7 @@ void fill_image(uint32_t color){
     }
 }
 
-void refresh_voronoi(SDL_Texture* refresh_text, SDL_Texture* origin_points_text){
+void refresh_voronoi(){
     generate_random_seeds();
     fill_image(UNDEFINED_COLOR);
     render_seed_markers(NULL);
@@ -236,51 +254,64 @@ void load_bmp(SDL_Texture** texture, const char* bmp_path){
     SDL_FreeSurface(surface);
 }
 
-int main(void){
-    initialize_window(); 
-    SDL_Texture* refresh_text = NULL;
-    SDL_Texture* origin_points_text = NULL;
-    load_bmp(&refresh_text, REFRESH_FILE_PATH);
-    load_bmp(&origin_points_text, ORIGIN_POINTS_FILE_PATH);
-    refresh_voronoi(refresh_text, origin_points_text);
-
+int process_events(){
     SDL_Event event;
-    int loop = 1;
-    while(loop){
-        while(SDL_PollEvent(&event)){
-            switch(event.type){
-            case SDL_QUIT:
-                loop = 0;
-                break;
+    while(SDL_PollEvent(&event)){
+        switch(event.type){
+        case SDL_QUIT:
+            return 0;
+            break;
 
-            case SDL_KEYDOWN:
-                if(event.key.keysym.sym == SDLK_r){
-                    refresh_voronoi(refresh_text, origin_points_text);
-                }
-                break;
-
-            case SDL_MOUSEBUTTONDOWN:
-                if(inside_rect(event.button.x, event.button.y, &button)){
-                    refresh_voronoi(refresh_text, origin_points_text);
-                }
-                else if(inside_rect(event.button.x, event.button.y, &checkbox) 
-                        || inside_rect(event.button.x, event.button.y, &origin_toggle_rect)){
-                    draw_origin_points = (draw_origin_points + 1) % 2;
-                    if(draw_origin_points){
-                        uint32_t black = 0xFF000000;
-                        render_seed_markers(&black);
-                    }
-                    render_window(refresh_text, origin_points_text);
-                }
-                break;
-
-            default:
-                break;
+        case SDL_KEYDOWN:
+            if(event.key.keysym.sym == SDLK_r){
+                refresh_voronoi(refresh_text, origin_points_text);
             }
+            break;
+
+        case SDL_MOUSEBUTTONDOWN:
+            if(inside_rect(event.button.x, event.button.y, &button)){
+                refresh_voronoi(refresh_text, origin_points_text);
+            }
+            else if(inside_rect(event.button.x, event.button.y, &checkbox) 
+                    || inside_rect(event.button.x, event.button.y, &origin_toggle_rect)){
+                draw_origin_points = (draw_origin_points + 1) % 2;
+                if(draw_origin_points){
+                    uint32_t black = 0xFF000000;
+                    render_seed_markers(&black);
+                }
+                render_window(refresh_text, origin_points_text);
+            }
+            break;
+
+        default:
+            break;
         }
     }
+    return 1;
+}
+
+void initalize_textures(void){
+    load_bmp(&refresh_text, REFRESH_BMP_PATH);
+    load_bmp(&origin_points_text, ORIGIN_POINTS_BMP_PATH);
+    load_bmp(&seeds_text, SEEDS_BMP_PATH);
+    load_bmp(&numbers_text, NUMBERS_BMP_PATH);    
+}
+
+void cleanup_textures(void){
     SDL_DestroyTexture(refresh_text);
     SDL_DestroyTexture(origin_points_text);
+    SDL_DestroyTexture(seeds_text);
+    SDL_DestroyTexture(numbers_text);
+}
+
+int main(void){
+    initialize_window(); 
+    initalize_textures();
+    refresh_voronoi();
+
+    while(process_events()){};
+
+    cleanup_textures();
     cleanup_window();
     return 0;
 }
