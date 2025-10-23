@@ -12,11 +12,8 @@
 #define VORONOI_LENGTH 600
 #define WINDOW_BACKGROUND_COLOR 15, 15, 15, 255
 #define BUTTON_COLOR 246,246,246,255
-#define SEEDS_COUNT 256
-
 
 #define UNDEFINED_COLOR 0x00BABABA
-
 #define EMPTY_ORIGIN (Point){-1,-1}
 
 #define REFRESH_BMP_PATH "./REFRESH.bmp"
@@ -39,7 +36,8 @@ typedef struct {
 } Pixel;
 
 static Pixel image[VORONOI_LENGTH][VORONOI_LENGTH];
-static Point seeds[SEEDS_COUNT];
+static int seeds_count = 256;
+static Point* seeds;
 static int draw_origin_points = 0;
 
 SDL_Rect button = {};
@@ -155,7 +153,7 @@ void cleanup_window(void){
  
 void generate_random_seeds(void){
     srand((unsigned int)time(NULL));
-    for (size_t i = 0; i < SEEDS_COUNT; ++i){
+    for (size_t i = 0; i < seeds_count; ++i){
         seeds[i].x = rand() % VORONOI_LENGTH;
         seeds[i].y = rand() % VORONOI_LENGTH;
     }
@@ -176,7 +174,7 @@ void fill_seed_marker(int x, int y, uint32_t * color){
 }
 
 void render_seed_markers(uint32_t * color){
-    for(size_t i = 0; i < SEEDS_COUNT; ++i){
+    for(size_t i = 0; i < seeds_count; ++i){
         fill_seed_marker(seeds[i].x, seeds[i].y, color);
     }
 }
@@ -290,7 +288,7 @@ int process_events(){
     return 1;
 }
 
-void initalize_textures(void){
+void initialize_textures(void){
     load_bmp(&refresh_text, REFRESH_BMP_PATH);
     load_bmp(&origin_points_text, ORIGIN_POINTS_BMP_PATH);
     load_bmp(&seeds_text, SEEDS_BMP_PATH);
@@ -306,11 +304,13 @@ void cleanup_textures(void){
 
 int main(void){
     initialize_window(); 
-    initalize_textures();
+    initialize_textures();
+    seeds = (Point *)malloc(seeds_count * sizeof(Point));
     refresh_voronoi();
 
     while(process_events()){};
 
+    free(seeds);
     cleanup_textures();
     cleanup_window();
     return 0;
