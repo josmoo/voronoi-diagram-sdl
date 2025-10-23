@@ -12,6 +12,7 @@
 #define VORONOI_LENGTH 600
 #define WINDOW_BACKGROUND_COLOR 15, 15, 15, 255
 #define BUTTON_COLOR 246,246,246,255
+#define ENTER_NUMBERS_COLOR 196,196,196,255
 
 #define UNDEFINED_COLOR 0x00BABABA
 #define EMPTY_ORIGIN (Point){-1,-1}
@@ -20,6 +21,9 @@
 #define ORIGIN_POINTS_BMP_PATH "./ORIGIN_POINTS.bmp"
 #define SEEDS_BMP_PATH "./SEEDS.bmp"
 #define NUMBERS_BMP_PATH "./NUMBERS.bmp"
+
+#define NUMBER_WIDTH 12
+#define NUMBER_HEIGHT 16
 
 SDL_Texture* refresh_text = NULL;
 SDL_Texture* origin_points_text = NULL;
@@ -36,9 +40,10 @@ typedef struct {
 } Pixel;
 
 static Pixel image[VORONOI_LENGTH][VORONOI_LENGTH];
-static int seeds_count = 256;
+static uint32_t seeds_count = 2048;
 static Point* seeds;
 static int draw_origin_points = 0;
+static int entering_seed_value = 0;
 
 SDL_Rect button = {};
 SDL_Rect checkbox = {};
@@ -83,13 +88,34 @@ int inside_rect(int x, int y, SDL_Rect * rect){
     return 0;
 }
 
+void toggle_boolean(int * booln){
+    *booln = (*booln + 1 ) % 2;
+}
+
 void dissect_color(uint8_t* bytes, uint32_t color){
     bytes[0] = (color & 0x000000FF);     //R
     bytes[1] = (color & 0x0000FF00)>>8;  //G
     bytes[2] = (color & 0x00FF0000)>>16; //B
 }
 
-void render_window(){
+void render_digit(unsigned int digit, unsigned int x, unsigned int y){
+    SDL_Rect digit_dest = {x, y, NUMBER_WIDTH, NUMBER_HEIGHT};
+    SDL_Rect digit_select = {NUMBER_WIDTH * digit, 0, NUMBER_WIDTH, NUMBER_HEIGHT};
+    SDL_RenderCopy (renderer, numbers_text, &digit_select, &digit_dest);
+}
+
+void render_seeds_count(void){ 
+    unsigned int seeds_count_copy = seeds_count;
+    unsigned int x = seeds_count_input.x + seeds_count_input.w - NUMBER_WIDTH;
+    unsigned int y = seeds_count_input.y + 1;
+    while(seeds_count_copy > 0){
+        render_digit(seeds_count_copy % 10, x, y);
+        seeds_count_copy /= 10;
+        x -= NUMBER_WIDTH;
+    }
+}
+
+void render_window(void){
     SDL_SetRenderDrawColor(renderer, WINDOW_BACKGROUND_COLOR);
     SDL_RenderClear(renderer);
 
@@ -131,6 +157,15 @@ void render_window(){
     seeds_count_input.w = button.w - (seeds_count_label.w);
     seeds_count_input.h = 18;
     SDL_RenderFillRect(renderer, &seeds_count_input);
+    SDL_SetTextInputRect(&seeds_count_input);
+
+    if(entering_seed_value){
+        SDL_Rect entering_seeds_box = {seeds_count_input.x + 1, seeds_count_input.y + 1,
+                                 seeds_count_input.w - 2, seeds_count_input.h - 2};
+        SDL_SetRenderDrawColor(renderer, ENTER_NUMBERS_COLOR);
+        SDL_RenderFillRect(renderer, &entering_seeds_box);
+    }
+    render_seeds_count();
     
     //draw voronoi
     for(int y = 0; y < VORONOI_LENGTH; ++y){
@@ -228,7 +263,7 @@ void fill_image(uint32_t color){
     }
 }
 
-void refresh_voronoi(){
+void refresh_voronoi(void){
     generate_random_seeds();
     fill_image(UNDEFINED_COLOR);
     render_seed_markers(NULL);
@@ -237,7 +272,7 @@ void refresh_voronoi(){
         uint32_t black = 0xFF000000;
         render_seed_markers(&black);
     }
-    render_window(refresh_text, origin_points_text);
+    render_window();
 }
 
 void load_bmp(SDL_Texture** texture, const char* bmp_path){
@@ -252,7 +287,7 @@ void load_bmp(SDL_Texture** texture, const char* bmp_path){
     SDL_FreeSurface(surface);
 }
 
-int process_events(){
+int process_events(void){
     SDL_Event event;
     while(SDL_PollEvent(&event)){
         switch(event.type){
@@ -262,22 +297,57 @@ int process_events(){
 
         case SDL_KEYDOWN:
             if(event.key.keysym.sym == SDLK_r){
-                refresh_voronoi(refresh_text, origin_points_text);
+                refresh_voronoi();
+                break;
+            }
+            if(!entering_seed_value){
+                break;
+            }
+            if(event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_RETURN){
+                toggle_boolean(&entering_seed_value);
+                render_window();
+                break;
+            }
+            if(event.key.keysym.sym == SDLK_BACKSPACE){
+                seeds_count /= 10;
+                render_window();
+                break;
+            }
+            break;
+        
+        case SDL_TEXTINPUT:
+            if(entering_seed_value && *event.text.text > 0x2F && *event.text.text < 0x3A){
+                if(seeds_count > 0x100000){
+                    seeds_count /= 10;
+                }
+                seeds_count *= 10;
+                seeds_count += (int) *event.text.text - 0x30;
+                seeds = realloc(seeds, seeds_count * sizeof(Point));
+                render_window();
+                break;
             }
             break;
 
         case SDL_MOUSEBUTTONDOWN:
-            if(inside_rect(event.button.x, event.button.y, &button)){
-                refresh_voronoi(refresh_text, origin_points_text);
+            if((!entering_seed_value && inside_rect(event.button.x, event.button.y, &seeds_count_input))
+                || (entering_seed_value && !inside_rect(event.button.x, event.button.y, &seeds_count_input))){
+                toggle_boolean(&entering_seed_value);
+                render_window();
             }
-            else if(inside_rect(event.button.x, event.button.y, &checkbox) 
+
+            if(inside_rect(event.button.x, event.button.y, &button)){
+                refresh_voronoi();
+                break;
+            }
+            if(inside_rect(event.button.x, event.button.y, &checkbox) 
                     || inside_rect(event.button.x, event.button.y, &origin_toggle_rect)){
-                draw_origin_points = (draw_origin_points + 1) % 2;
+                toggle_boolean(&draw_origin_points);
                 if(draw_origin_points){
                     uint32_t black = 0xFF000000;
                     render_seed_markers(&black);
                 }
-                render_window(refresh_text, origin_points_text);
+                render_window();
+                break;
             }
             break;
 
@@ -306,10 +376,12 @@ int main(void){
     initialize_window(); 
     initialize_textures();
     seeds = (Point *)malloc(seeds_count * sizeof(Point));
+    SDL_StartTextInput();
     refresh_voronoi();
 
     while(process_events()){};
 
+    SDL_StopTextInput();
     free(seeds);
     cleanup_textures();
     cleanup_window();
